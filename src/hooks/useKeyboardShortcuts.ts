@@ -30,6 +30,7 @@ export function useKeyboardShortcuts() {
         v: "select",
         h: "hand",
         p: "freehand",
+        e: "eraser",
         l: "line",
         a: "arrow",
         r: "rectangle",

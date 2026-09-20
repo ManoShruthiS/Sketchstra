@@ -2,6 +2,7 @@ export type Tool =
   | "select"
   | "hand"
   | "freehand"
+  | "eraser"
   | "line"
   | "arrow"
   | "rectangle"

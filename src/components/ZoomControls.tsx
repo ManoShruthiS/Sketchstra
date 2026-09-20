@@ -1,7 +1,7 @@
 import { useCanvasStore } from "../stores/canvasStore";
 
 export default function ZoomControls() {
-  const { zoom, setZoom } = useCanvasStore();
+  const { zoom, setZoom, setPan } = useCanvasStore();
   const percentage = Math.round(zoom * 100);
 
   return (
@@ -21,7 +21,7 @@ export default function ZoomControls() {
       </button>
       <div className="w-px h-4 bg-[#333] mx-1" />
       <button
-        onClick={() => setZoom(1)}
+        onClick={() => { setZoom(1); setPan(0, 0); }}
         className="px-2 py-0.5 text-[11px] text-[#D4A843] hover:bg-[#1a1a1a] rounded transition-colors font-medium uppercase tracking-wider"
       >
         Reset

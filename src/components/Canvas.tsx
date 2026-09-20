@@ -58,6 +58,7 @@ export default function Canvas({ onMouseMove }: CanvasProps) {
     setZoom,
     setPan,
     setSelectedIds,
+    deleteElements,
   } = useCanvasStore()
 
   const screenToCanvas = useCallback(
@@ -327,6 +328,10 @@ export default function Canvas({ onMouseMove }: CanvasProps) {
           opacity,
           angle: 0,
         })
+      } else if (tool === 'eraser') {
+        setIsDrawing(true)
+        setStartPoint(pt)
+        setFreehandPoints([pt])
       } else if (tool === 'text') {
         const text = prompt('Enter text:')
         if (text) {
@@ -393,12 +398,36 @@ export default function Canvas({ onMouseMove }: CanvasProps) {
 
       if (!isDrawing || !startPoint) return
 
-      if (tool === 'freehand') {
+      if (tool === 'eraser') {
         const newPoints = [...freehandPoints, pt]
         setFreehandPoints(newPoints)
-        setCurrentElement((prev) =>
-          prev && prev.type === 'freehand' ? { ...prev, points: newPoints } : prev
-        )
+        const eraserRadius = strokeWidth * 2
+        const toDelete: string[] = []
+        for (const el of elements) {
+          if (el.type === 'freehand') {
+            for (const p of el.points) {
+              if (Math.abs(p.x - pt.x) < eraserRadius && Math.abs(p.y - pt.y) < eraserRadius) {
+                toDelete.push(el.id)
+                break
+              }
+            }
+          } else {
+            const b = getElementBounds(el)
+            if (
+              pt.x >= b.x - eraserRadius && pt.x <= b.x + b.width + eraserRadius &&
+              pt.y >= b.y - eraserRadius && pt.y <= b.y + b.height + eraserRadius
+            ) {
+              toDelete.push(el.id)
+            }
+          }
+        }
+        if (toDelete.length > 0) {
+          deleteElements(toDelete)
+        }
+        return
+      }
+
+      if (tool === 'freehand') {
       } else if (currentElement && (tool === 'line' || tool === 'arrow')) {
         setCurrentElement((prev) =>
           prev && (prev.type === 'line' || prev.type === 'arrow')
@@ -426,7 +455,7 @@ export default function Canvas({ onMouseMove }: CanvasProps) {
       return
     }
 
-    if (isDrawing && currentElement) {
+    if (isDrawing && currentElement && tool !== 'eraser') {
       const bounds = getElementBounds(currentElement)
       if (bounds.width > 2 || bounds.height > 2 || currentElement.type === 'freehand') {
         addElement(currentElement)
@@ -437,7 +466,7 @@ export default function Canvas({ onMouseMove }: CanvasProps) {
     setStartPoint(null)
     setCurrentElement(null)
     setFreehandPoints([])
-  }, [isPanning, isDrawing, currentElement, addElement])
+  }, [isPanning, isDrawing, currentElement, addElement, tool])
 
   const handleWheel = useCallback(
     (e: React.WheelEvent<HTMLCanvasElement>) => {

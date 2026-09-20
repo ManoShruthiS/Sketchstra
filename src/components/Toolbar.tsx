@@ -40,6 +40,17 @@ const tools: ToolDef[] = [
     ),
   },
   {
+    tool: "eraser",
+    label: "Eraser",
+    shortcut: "E",
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2}>
+        <path d="M20 20H7L3 16l9.5-9.5a2.828 2.828 0 014 4L8 19" />
+        <path d="M18 13l-1.5-1.5" />
+      </svg>
+    ),
+  },
+  {
     tool: "line",
     label: "Line",
     shortcut: "L",

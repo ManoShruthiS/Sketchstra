@@ -74,7 +74,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   setSelectedIds: (ids) => set({ selectedIds: ids }),
 
-  setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(5, zoom)) }),
+  setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(10, zoom)) }),
 
   setPan: (x, y) => set({ panX: x, panY: y }),
 
