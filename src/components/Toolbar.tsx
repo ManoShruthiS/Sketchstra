@@ -118,13 +118,16 @@ const tools: ToolDef[] = [
 export default function Toolbar() {
   const {
     tool, setTool,
-    strokeColor, fillColor, strokeWidth, opacity,
+    strokeColor, fillColor, strokeWidth, opacity, darkMode,
     setStrokeColor, setFillColor, setStrokeWidth, setOpacity,
     undo, redo, deleteElements, selectedIds,
   } = useCanvasStore();
 
+  const bgColor = darkMode ? '#1a1a1a' : '#111111';
+  const borderColor = darkMode ? '#444' : '#333';
+
   return (
-    <div className="w-14 bg-[#111111] border-r border-[#333] flex flex-col items-center py-3 gap-1 select-none">
+    <div className="w-14 flex flex-col items-center py-3 gap-1 select-none" style={{ backgroundColor: bgColor, borderRight: `1px solid ${borderColor}` }}>
       <div className="flex flex-col gap-0.5">
         {tools.map(({ tool: t, label, shortcut, icon }) => (
           <button

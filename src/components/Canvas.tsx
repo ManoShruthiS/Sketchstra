@@ -54,6 +54,7 @@ export default function Canvas({ onMouseMove }: CanvasProps) {
     fillColor,
     strokeWidth,
     opacity,
+    darkMode,
     addElement,
     setZoom,
     setPan,
@@ -199,12 +200,12 @@ export default function Canvas({ onMouseMove }: CanvasProps) {
     if (!ctx) return
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.fillStyle = '#ffffff'
+    ctx.fillStyle = darkMode ? '#1a1a1a' : '#ffffff'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
     const dotSpacing = 20
     if (zoom > 0.4) {
-      ctx.fillStyle = '#e5e7eb'
+      ctx.fillStyle = darkMode ? '#333333' : '#e5e7eb'
       const startX = Math.floor(-panX / zoom / dotSpacing) * dotSpacing
       const startY = Math.floor(-panY / zoom / dotSpacing) * dotSpacing
       const endX = startX + canvas.width / zoom + dotSpacing * 2
@@ -233,7 +234,7 @@ export default function Canvas({ onMouseMove }: CanvasProps) {
     })
 
     ctx.restore()
-  }, [elements, currentElement, selectedIds, zoom, panX, panY, renderElement, drawSelection])
+  }, [elements, currentElement, selectedIds, zoom, panX, panY, darkMode, renderElement, drawSelection])
 
   useEffect(() => {
     const container = containerRef.current
@@ -428,6 +429,11 @@ export default function Canvas({ onMouseMove }: CanvasProps) {
       }
 
       if (tool === 'freehand') {
+        const newPoints = [...freehandPoints, pt]
+        setFreehandPoints(newPoints)
+        setCurrentElement((prev) =>
+          prev && prev.type === 'freehand' ? { ...prev, points: newPoints } : prev
+        )
       } else if (currentElement && (tool === 'line' || tool === 'arrow')) {
         setCurrentElement((prev) =>
           prev && (prev.type === 'line' || prev.type === 'arrow')

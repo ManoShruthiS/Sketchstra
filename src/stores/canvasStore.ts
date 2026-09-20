@@ -12,6 +12,7 @@ interface CanvasState {
   fillColor: string;
   strokeWidth: number;
   opacity: number;
+  darkMode: boolean;
 
   setTool: (tool: Tool) => void;
   addElement: (element: CanvasElement) => void;
@@ -24,6 +25,7 @@ interface CanvasState {
   setFillColor: (color: string) => void;
   setStrokeWidth: (width: number) => void;
   setOpacity: (opacity: number) => void;
+  toggleDarkMode: () => void;
   undo: () => void;
   redo: () => void;
 }
@@ -46,6 +48,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   fillColor: "transparent",
   strokeWidth: 2,
   opacity: 1,
+  darkMode: false,
 
   setTool: (tool) => set({ tool }),
 
@@ -85,6 +88,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setStrokeWidth: (width) => set({ strokeWidth: width }),
 
   setOpacity: (opacity) => set({ opacity }),
+
+  toggleDarkMode: () => set((state) => ({ darkMode: !state.darkMode })),
 
   undo: () => {
     if (historyIndex > 0) {
