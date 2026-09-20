@@ -1,324 +1,492 @@
-import { useRef, useState, useCallback, useEffect } from "react";
-import { useCanvasStore } from "../stores/canvasStore";
-import type { Point, CanvasElement } from "../types/canvas";
+import { useRef, useState, useCallback, useEffect } from 'react'
+import { useCanvasStore } from '../stores/canvasStore'
+import { Point, CanvasElement } from '../types/canvas'
 
-let idCounter = 0;
-function generateId() {
-  return `el_${Date.now()}_${idCounter++}`;
+
+let idCounter = 0
+function generateId(): string {
+  return `el_${Date.now()}_${++idCounter}`
 }
 
-export default function Canvas() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [startPoint, setStartPoint] = useState<Point | null>(null);
-  const [currentElement, setCurrentElement] = useState<CanvasElement | null>(null);
-  const [isPanning, setIsPanning] = useState(false);
-  const [lastPan, setLastPan] = useState<Point>({ x: 0, y: 0 });
-  const [freehandPoints, setFreehandPoints] = useState<Point[]>([]);
+function getElementBounds(el: CanvasElement): { x: number; y: number; width: number; height: number } {
+  if (el.type === 'freehand') {
+    const xs = el.points.map((p) => p.x)
+    const ys = el.points.map((p) => p.y)
+    const minX = Math.min(...xs)
+    const minY = Math.min(...ys)
+    const maxX = Math.max(...xs)
+    const maxY = Math.max(...ys)
+    return { x: minX, y: minY, width: maxX - minX || 1, height: maxY - minY || 1 }
+  }
+  if (el.type === 'line' || el.type === 'arrow') {
+    const x = Math.min(el.x, el.x2)
+    const y = Math.min(el.y, el.y2)
+    return { x, y, width: Math.abs(el.x2 - el.x) || 1, height: Math.abs(el.y2 - el.y) || 1 }
+  }
+  if (el.type === 'text') {
+    return { x: el.x, y: el.y, width: el.text.length * el.fontSize * 0.6, height: el.fontSize * 1.2 }
+  }
+  return { x: el.x, y: el.y, width: el.width, height: el.height }
+}
+
+interface CanvasProps {
+  onMouseMove?: (x: number, y: number) => void
+}
+
+export default function Canvas({ onMouseMove }: CanvasProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [startPoint, setStartPoint] = useState<Point | null>(null)
+  const [currentElement, setCurrentElement] = useState<CanvasElement | null>(null)
+  const [isPanning, setIsPanning] = useState(false)
+  const [lastPan, setLastPan] = useState<Point>({ x: 0, y: 0 })
+  const [freehandPoints, setFreehandPoints] = useState<Point[]>([])
 
   const {
-    tool, elements, zoom, panX, panY,
-    strokeColor, fillColor, strokeWidth, opacity,
-    addElement, setZoom, setPan,
-  } = useCanvasStore();
+    tool,
+    elements,
+    zoom,
+    panX,
+    panY,
+    selectedIds,
+    strokeColor,
+    fillColor,
+    strokeWidth,
+    opacity,
+    addElement,
+    setZoom,
+    setPan,
+    setSelectedIds,
+  } = useCanvasStore()
 
   const screenToCanvas = useCallback(
     (sx: number, sy: number): Point => {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return { x: 0, y: 0 };
       return {
-        x: (sx - rect.left - panX) / zoom,
-        y: (sy - rect.top - panY) / zoom,
-      };
+        x: (sx - panX) / zoom,
+        y: (sy - panY) / zoom,
+      }
     },
-    [zoom, panX, panY]
-  );
+    [panX, panY, zoom]
+  )
 
   const renderElement = useCallback(
     (ctx: CanvasRenderingContext2D, el: CanvasElement) => {
-      ctx.save();
-      ctx.globalAlpha = el.opacity;
-      ctx.translate(el.x, el.y);
-      ctx.strokeStyle = el.strokeColor;
-      ctx.fillStyle = el.fillColor;
-      ctx.lineWidth = el.strokeWidth;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
+      ctx.save()
+      ctx.globalAlpha = el.opacity ?? 1
+      ctx.strokeStyle = el.strokeColor || '#111111'
+      ctx.lineWidth = el.strokeWidth ?? 2
+      ctx.fillStyle = el.fillColor || 'transparent'
 
-      switch (el.type) {
-        case "freehand": {
-          if (el.points.length < 2) break;
-          ctx.beginPath();
-          ctx.moveTo(el.points[0].x, el.points[0].y);
-          for (let i = 1; i < el.points.length; i++) {
-            ctx.lineTo(el.points[i].x, el.points[i].y);
-          }
-          ctx.stroke();
-          break;
+      if (el.type === 'freehand') {
+        if (el.points.length < 2) {
+          ctx.restore()
+          return
         }
-        case "line": {
-          ctx.beginPath();
-          ctx.moveTo(0, 0);
-          ctx.lineTo(el.x2 - el.x, el.y2 - el.y);
-          ctx.stroke();
-          break;
+        ctx.beginPath()
+        ctx.moveTo(el.points[0].x, el.points[0].y)
+        for (let i = 1; i < el.points.length; i++) {
+          ctx.lineTo(el.points[i].x, el.points[i].y)
         }
-        case "arrow": {
-          const dx = el.x2 - el.x;
-          const dy = el.y2 - el.y;
-          const angle = Math.atan2(dy, dx);
-          const headLen = 12;
-          ctx.beginPath();
-          ctx.moveTo(0, 0);
-          ctx.lineTo(dx, dy);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(dx, dy);
-          ctx.lineTo(
-            dx - headLen * Math.cos(angle - Math.PI / 6),
-            dy - headLen * Math.sin(angle - Math.PI / 6)
-          );
-          ctx.moveTo(dx, dy);
-          ctx.lineTo(
-            dx - headLen * Math.cos(angle + Math.PI / 6),
-            dy - headLen * Math.sin(angle + Math.PI / 6)
-          );
-          ctx.stroke();
-          break;
+        ctx.stroke()
+      } else if (el.type === 'line') {
+        ctx.beginPath()
+        ctx.moveTo(el.x, el.y)
+        ctx.lineTo(el.x2, el.y2)
+        ctx.stroke()
+      } else if (el.type === 'arrow') {
+        const headLen = 12
+        const arrowAngle = Math.atan2(el.y2 - el.y, el.x2 - el.x)
+        ctx.beginPath()
+        ctx.moveTo(el.x, el.y)
+        ctx.lineTo(el.x2, el.y2)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(el.x2, el.y2)
+        ctx.lineTo(el.x2 - headLen * Math.cos(arrowAngle - Math.PI / 6), el.y2 - headLen * Math.sin(arrowAngle - Math.PI / 6))
+        ctx.moveTo(el.x2, el.y2)
+        ctx.lineTo(el.x2 - headLen * Math.cos(arrowAngle + Math.PI / 6), el.y2 - headLen * Math.sin(arrowAngle + Math.PI / 6))
+        ctx.stroke()
+      } else if (el.type === 'rectangle') {
+        if (el.fillColor && el.fillColor !== 'transparent') {
+          ctx.fillRect(el.x, el.y, el.width, el.height)
         }
-        case "rectangle": {
-          ctx.beginPath();
-          ctx.rect(0, 0, el.width, el.height);
-          if (el.fillColor !== "transparent") ctx.fill();
-          ctx.stroke();
-          break;
+        ctx.strokeRect(el.x, el.y, el.width, el.height)
+      } else if (el.type === 'ellipse') {
+        const cx = el.x + el.width / 2
+        const cy = el.y + el.height / 2
+        ctx.beginPath()
+        ctx.ellipse(cx, cy, Math.abs(el.width / 2), Math.abs(el.height / 2), 0, 0, Math.PI * 2)
+        if (el.fillColor && el.fillColor !== 'transparent') {
+          ctx.fill()
         }
-        case "ellipse": {
-          ctx.beginPath();
-          ctx.ellipse(
-            el.width / 2, el.height / 2,
-            Math.abs(el.width / 2), Math.abs(el.height / 2),
-            0, 0, Math.PI * 2
-          );
-          if (el.fillColor !== "transparent") ctx.fill();
-          ctx.stroke();
-          break;
+        ctx.stroke()
+      } else if (el.type === 'diamond') {
+        const cx = el.x + el.width / 2
+        const cy = el.y + el.height / 2
+        ctx.beginPath()
+        ctx.moveTo(cx, el.y)
+        ctx.lineTo(el.x + el.width, cy)
+        ctx.lineTo(cx, el.y + el.height)
+        ctx.lineTo(el.x, cy)
+        ctx.closePath()
+        if (el.fillColor && el.fillColor !== 'transparent') {
+          ctx.fill()
         }
-        case "diamond": {
-          const hw = el.width / 2;
-          const hh = el.height / 2;
-          ctx.beginPath();
-          ctx.moveTo(hw, 0);
-          ctx.lineTo(el.width, hh);
-          ctx.lineTo(hw, el.height);
-          ctx.lineTo(0, hh);
-          ctx.closePath();
-          if (el.fillColor !== "transparent") ctx.fill();
-          ctx.stroke();
-          break;
-        }
-        case "text": {
-          ctx.font = `${el.fontSize}px sans-serif`;
-          ctx.fillStyle = el.strokeColor;
-          ctx.fillText(el.text, 0, el.fontSize);
-          break;
-        }
+        ctx.stroke()
+      } else if (el.type === 'text') {
+        ctx.font = `${el.fontSize ?? 16}px sans-serif`
+        ctx.fillStyle = el.strokeColor || '#111111'
+        ctx.textBaseline = 'top'
+        const lines = (el.text || '').split('\n')
+        const lineHeight = (el.fontSize ?? 16) * 1.3
+        lines.forEach((line, i) => {
+          ctx.fillText(line, el.x, el.y + i * lineHeight)
+        })
       }
-      ctx.restore();
+
+      ctx.restore()
     },
     []
-  );
+  )
+
+  const drawSelection = useCallback(
+    (ctx: CanvasRenderingContext2D, el: CanvasElement) => {
+      const bounds = getElementBounds(el)
+      const pad = 4
+      const x = bounds.x - pad
+      const y = bounds.y - pad
+      const w = bounds.width + pad * 2
+      const h = bounds.height + pad * 2
+
+      ctx.save()
+      ctx.strokeStyle = '#D4A843'
+      ctx.lineWidth = 1.5 / zoom
+      ctx.setLineDash([6 / zoom, 4 / zoom])
+      ctx.strokeRect(x, y, w, h)
+      ctx.setLineDash([])
+
+      const handleSize = 8 / zoom
+      const handles = [
+        { hx: x, hy: y },
+        { hx: x + w / 2, hy: y },
+        { hx: x + w, hy: y },
+        { hx: x + w, hy: y + h / 2 },
+        { hx: x + w, hy: y + h },
+        { hx: x + w / 2, hy: y + h },
+        { hx: x, hy: y + h },
+        { hx: x, hy: y + h / 2 },
+      ]
+
+      ctx.fillStyle = '#D4A843'
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 1.5 / zoom
+      handles.forEach(({ hx, hy }) => {
+        ctx.fillRect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize)
+        ctx.strokeRect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize)
+      })
+
+      ctx.restore()
+    },
+    [zoom]
+  )
 
   const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
-    ctx.translate(panX, panY);
-    ctx.scale(zoom, zoom);
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    for (const el of elements) {
-      renderElement(ctx, el);
+    const dotSpacing = 20
+    if (zoom > 0.4) {
+      ctx.fillStyle = '#e5e7eb'
+      const startX = Math.floor(-panX / zoom / dotSpacing) * dotSpacing
+      const startY = Math.floor(-panY / zoom / dotSpacing) * dotSpacing
+      const endX = startX + canvas.width / zoom + dotSpacing * 2
+      const endY = startY + canvas.height / zoom + dotSpacing * 2
+      for (let dx = startX; dx <= endX; dx += dotSpacing) {
+        for (let dy = startY; dy <= endY; dy += dotSpacing) {
+          ctx.beginPath()
+          ctx.arc(dx, dy, 1.2 / zoom, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
     }
+
+    ctx.save()
+    ctx.translate(panX, panY)
+    ctx.scale(zoom, zoom)
+
+    elements.forEach((el) => renderElement(ctx, el))
     if (currentElement) {
-      renderElement(ctx, currentElement);
+      renderElement(ctx, currentElement)
     }
 
-    ctx.restore();
-  }, [elements, currentElement, zoom, panX, panY, renderElement]);
+    selectedIds.forEach((id) => {
+      const el = elements.find((e) => e.id === id)
+      if (el) drawSelection(ctx, el)
+    })
+
+    ctx.restore()
+  }, [elements, currentElement, selectedIds, zoom, panX, panY, renderElement, drawSelection])
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const container = canvas?.parentElement;
-    if (!canvas || !container) return;
+    const container = containerRef.current
+    const canvas = canvasRef.current
+    if (!container || !canvas) return
 
-    const resize = () => {
-      canvas.width = container.clientWidth;
-      canvas.height = container.clientHeight;
-      draw();
-    };
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        canvas.width = width
+        canvas.height = height
+        draw()
+      }
+    })
+    observer.observe(container)
 
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, [draw]);
+    return () => observer.disconnect()
+  }, [draw])
 
   useEffect(() => {
-    draw();
-  }, [draw]);
+    draw()
+  }, [draw])
+
+  const findElementAtPoint = useCallback(
+    (px: number, py: number): CanvasElement | null => {
+      for (let i = elements.length - 1; i >= 0; i--) {
+        const el = elements[i]
+        const bounds = getElementBounds(el)
+        const pad = 4
+        if (
+          px >= bounds.x - pad &&
+          px <= bounds.x + bounds.width + pad &&
+          py >= bounds.y - pad &&
+          py <= bounds.y + bounds.height + pad
+        ) {
+          return el
+        }
+      }
+      return null
+    },
+    [elements]
+  )
 
   const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (tool === "hand" || e.button === 1) {
-        setIsPanning(true);
-        setLastPan({ x: e.clientX, y: e.clientY });
-        return;
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      const sx = e.clientX - rect.left
+      const sy = e.clientY - rect.top
+      const pt = screenToCanvas(sx, sy)
+
+      if (tool === 'hand' || e.button === 1) {
+        setIsPanning(true)
+        setLastPan({ x: e.clientX, y: e.clientY })
+        e.preventDefault()
+        return
       }
 
-      if (tool === "select") return;
+      if (tool === 'select') {
+        const hit = findElementAtPoint(pt.x, pt.y)
+        if (hit) {
+          if (e.shiftKey) {
+            setSelectedIds(
+              selectedIds.includes(hit.id)
+                ? selectedIds.filter((id) => id !== hit.id)
+                : [...selectedIds, hit.id]
+            )
+          } else {
+            setSelectedIds([hit.id])
+          }
+        } else {
+          setSelectedIds([])
+        }
+        return
+      }
 
-      const point = screenToCanvas(e.clientX, e.clientY);
-      setIsDrawing(true);
-      setStartPoint(point);
+      setIsDrawing(true)
+      setStartPoint(pt)
 
-      if (tool === "freehand") {
-        setFreehandPoints([point]);
+      if (tool === 'freehand') {
+        setFreehandPoints([pt])
         setCurrentElement({
-          id: generateId(), type: "freehand",
-          x: 0, y: 0, points: [point],
-          strokeColor, fillColor, strokeWidth, opacity, angle: 0,
-        });
-      } else if (tool === "text") {
-        const text = prompt("Enter text:");
+          id: generateId(),
+          type: 'freehand',
+          points: [pt],
+          x: pt.x,
+          y: pt.y,
+          strokeColor,
+          fillColor: 'transparent',
+          strokeWidth,
+          opacity,
+          angle: 0,
+        })
+      } else if (tool === 'text') {
+        const text = prompt('Enter text:')
         if (text) {
           addElement({
-            id: generateId(), type: "text",
-            x: point.x, y: point.y, text, fontSize: 20,
-            strokeColor, fillColor: "transparent",
-            strokeWidth, opacity, angle: 0,
-          });
+            id: generateId(),
+            type: 'text',
+            x: pt.x,
+            y: pt.y,
+            text,
+            fontSize: 16,
+            strokeColor,
+            fillColor: 'transparent',
+            strokeWidth,
+            opacity,
+            angle: 0,
+          })
         }
-        setIsDrawing(false);
-      } else if (tool === "line" || tool === "arrow") {
-        setCurrentElement({
-          id: generateId(), type: tool,
-          x: point.x, y: point.y, x2: point.x, y2: point.y,
-          strokeColor, fillColor, strokeWidth, opacity, angle: 0,
-        });
-      } else if (tool === "rectangle") {
-        setCurrentElement({
-          id: generateId(), type: "rectangle",
-          x: point.x, y: point.y, width: 0, height: 0,
-          strokeColor, fillColor, strokeWidth, opacity, angle: 0,
-        });
-      } else if (tool === "ellipse") {
-        setCurrentElement({
-          id: generateId(), type: "ellipse",
-          x: point.x, y: point.y, width: 0, height: 0,
-          strokeColor, fillColor, strokeWidth, opacity, angle: 0,
-        });
-      } else if (tool === "diamond") {
-        setCurrentElement({
-          id: generateId(), type: "diamond",
-          x: point.x, y: point.y, width: 0, height: 0,
-          strokeColor, fillColor, strokeWidth, opacity, angle: 0,
-        });
+        setIsDrawing(false)
+      } else {
+        const base = {
+          id: generateId(),
+          strokeColor,
+          fillColor,
+          strokeWidth,
+          opacity,
+          angle: 0,
+        }
+        if (tool === 'line') {
+          setCurrentElement({ ...base, type: 'line', x: pt.x, y: pt.y, x2: pt.x, y2: pt.y })
+        } else if (tool === 'arrow') {
+          setCurrentElement({ ...base, type: 'arrow', x: pt.x, y: pt.y, x2: pt.x, y2: pt.y })
+        } else if (tool === 'rectangle') {
+          setCurrentElement({ ...base, type: 'rectangle', x: pt.x, y: pt.y, width: 0, height: 0 })
+        } else if (tool === 'ellipse') {
+          setCurrentElement({ ...base, type: 'ellipse', x: pt.x, y: pt.y, width: 0, height: 0 })
+        } else if (tool === 'diamond') {
+          setCurrentElement({ ...base, type: 'diamond', x: pt.x, y: pt.y, width: 0, height: 0 })
+        }
       }
     },
-    [tool, screenToCanvas, strokeColor, fillColor, strokeWidth, opacity, addElement]
-  );
+    [tool, screenToCanvas, findElementAtPoint, selectedIds, setSelectedIds, strokeColor, fillColor, strokeWidth, opacity, addElement]
+  )
 
   const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (isPanning) {
-        const dx = e.clientX - lastPan.x;
-        const dy = e.clientY - lastPan.y;
-        setPan(panX + dx, panY + dy);
-        setLastPan({ x: e.clientX, y: e.clientY });
-        return;
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      const sx = e.clientX - rect.left
+      const sy = e.clientY - rect.top
+      const pt = screenToCanvas(sx, sy)
+
+      if (onMouseMove) {
+        onMouseMove(pt.x, pt.y)
       }
 
-      if (!isDrawing || !startPoint) return;
-      const point = screenToCanvas(e.clientX, e.clientY);
+      if (isPanning) {
+        const dx = e.clientX - lastPan.x
+        const dy = e.clientY - lastPan.y
+        setPan(panX + dx, panY + dy)
+        setLastPan({ x: e.clientX, y: e.clientY })
+        return
+      }
 
-      if (tool === "freehand") {
-        const newPoints = [...freehandPoints, point];
-        setFreehandPoints(newPoints);
+      if (!isDrawing || !startPoint) return
+
+      if (tool === 'freehand') {
+        const newPoints = [...freehandPoints, pt]
+        setFreehandPoints(newPoints)
         setCurrentElement((prev) =>
-          prev && prev.type === "freehand"
-            ? { ...prev, points: newPoints }
+          prev && prev.type === 'freehand' ? { ...prev, points: newPoints } : prev
+        )
+      } else if (currentElement && (tool === 'line' || tool === 'arrow')) {
+        setCurrentElement((prev) =>
+          prev && (prev.type === 'line' || prev.type === 'arrow')
+            ? { ...prev, x2: pt.x, y2: pt.y }
             : prev
-        );
-      } else if (currentElement) {
-        if (currentElement.type === "line" || currentElement.type === "arrow") {
-          setCurrentElement({ ...currentElement, x2: point.x, y2: point.y });
-        } else if (
-          currentElement.type === "rectangle" ||
-          currentElement.type === "ellipse" ||
-          currentElement.type === "diamond"
-        ) {
-          setCurrentElement({
-            ...currentElement,
-            width: point.x - startPoint.x,
-            height: point.y - startPoint.y,
-          });
-        }
+        )
+      } else if (currentElement && (tool === 'rectangle' || tool === 'ellipse' || tool === 'diamond')) {
+        const x = Math.min(startPoint.x, pt.x)
+        const y = Math.min(startPoint.y, pt.y)
+        const width = Math.abs(pt.x - startPoint.x)
+        const height = Math.abs(pt.y - startPoint.y)
+        setCurrentElement((prev) =>
+          prev && (prev.type === 'rectangle' || prev.type === 'ellipse' || prev.type === 'diamond')
+            ? { ...prev, x, y, width, height }
+            : prev
+        )
       }
     },
-    [isPanning, isDrawing, startPoint, tool, screenToCanvas, lastPan, panX, panY, setPan, currentElement, freehandPoints]
-  );
+    [isPanning, lastPan, isDrawing, startPoint, tool, freehandPoints, currentElement, panX, panY, zoom, screenToCanvas, setPan, onMouseMove]
+  )
 
   const handleMouseUp = useCallback(() => {
     if (isPanning) {
-      setIsPanning(false);
-      return;
+      setIsPanning(false)
+      return
     }
 
     if (isDrawing && currentElement) {
-      addElement(currentElement);
+      const bounds = getElementBounds(currentElement)
+      if (bounds.width > 2 || bounds.height > 2 || currentElement.type === 'freehand') {
+        addElement(currentElement)
+      }
     }
 
-    setIsDrawing(false);
-    setStartPoint(null);
-    setCurrentElement(null);
-    setFreehandPoints([]);
-  }, [isPanning, isDrawing, currentElement, addElement]);
+    setIsDrawing(false)
+    setStartPoint(null)
+    setCurrentElement(null)
+    setFreehandPoints([])
+  }, [isPanning, isDrawing, currentElement, addElement])
 
   const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
+    (e: React.WheelEvent<HTMLCanvasElement>) => {
+      e.preventDefault()
       if (e.ctrlKey || e.metaKey) {
-        const delta = -e.deltaY * 0.001;
-        setZoom(zoom + delta);
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const rect = canvas.getBoundingClientRect()
+        const sx = e.clientX - rect.left
+        const sy = e.clientY - rect.top
+
+        const delta = -e.deltaY * 0.002
+        const newZoom = Math.min(10, Math.max(0.1, zoom * (1 + delta)))
+        const scale = newZoom / zoom
+
+        const newPanX = sx - (sx - panX) * scale
+        const newPanY = sy - (sy - panY) * scale
+
+        setZoom(newZoom)
+        setPan(newPanX, newPanY)
       } else {
-        setPan(panX - e.deltaX, panY - e.deltaY);
+        setPan(panX - e.deltaX, panY - e.deltaY)
       }
     },
     [zoom, panX, panY, setZoom, setPan]
-  );
+  )
 
-  const cursorMap: Record<string, string> = {
-    select: "default", hand: "grab", freehand: "crosshair",
-    line: "crosshair", arrow: "crosshair", rectangle: "crosshair",
-    ellipse: "crosshair", diamond: "crosshair", text: "text",
-  };
+  const getCursor = () => {
+    if (tool === 'hand') return 'grab'
+    if (tool === 'select') return 'default'
+    if (tool === 'text') return 'text'
+    return 'crosshair'
+  }
 
   return (
-    <div className="flex-1 overflow-hidden relative">
+    <div
+      ref={containerRef}
+      style={{ width: '100%', height: '100%', overflow: 'hidden', cursor: getCursor() }}
+    >
       <canvas
         ref={canvasRef}
-        className="w-full h-full"
-        style={{ cursor: cursorMap[tool] || "default" }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
+        onContextMenu={(e) => e.preventDefault()}
+        style={{ display: 'block', width: '100%', height: '100%' }}
       />
     </div>
-  );
+  )
 }
